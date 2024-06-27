@@ -1,182 +1,62 @@
-""" 
-Python program to automatically join the online zoom classes 
-based on the given input in the Excel sheet List.xlsx
-the input should be in the given format
-
-Time : dd-mm-yyyy hh:mm AM/PM
-Meeting ID : 123456123 (string)
-Meeting Password : 1234 (string)
-
-IMP - If you want to change the program path jump to line 40
-
-Disclaimer:
-I am not responsible for any troubles caused to you
-if the program does not function as intended, or if it is misused,
-please make sure to test it before executing
-
-Modules used:
-
-pyautogui - https://pyautogui.readthedocs.io/en/latest/
-openpyxl - https://openpyxl.readthedocs.io/en/stable/
-PIL - https://pillow.readthedocs.io/en/stable/
-"""
+from keras.applications.resnet50 import ResNet50
+from keras.layers import Dense, GlobalAveragePooling2D
+from keras.models import Model
+from keras.preprocessing.image import ImageDataGenerator
+from keras.applications.vgg16 import VGG16
 
 
+base_model = ResNet50(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+#base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+# Freeze the base model layers
+for layer in base_model.layers:
+    layer.trainable = False
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2
+)
+
+train_generator = train_datagen.flow_from_directory(
+    '/dataset/train',  
+    target_size=(224, 224),
+    batch_size=32,
+    class_mode='categorical'
+)
+val_datagen = ImageDataGenerator(rescale=1./255)>>>>>
+val_generator = val_datagen.flow_from_directory(
+    '/dataset/test',  
+    target_size=(224, 224),
+    batch_size=32,
+    class_mode='categorical'
+)
+#  top layer
+x = base_model.output
+x = GlobalAveragePooling2D()(x)
+predictions = Dense(6, activation='softmax')(x)  # 6 classes: front and back of 3 currency notes
+
+model = Model(inputs=base_model.input, outputs=predictions)
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+from keras.callbacks import EarlyStopping
+early_stop = EarlyStopping(monitor='val_loss', patience=10)
+model.fit_generator(
+    train_generator,
+    steps_per_epoch=len(train_generator),
+    epochs=500,  
+    validation_data=val_generator,
+    validation_steps=len(val_generator),
+    callbacks=[early_stop]  
+)
 
 
-
-import  datetime, time, subprocess, csv, os, webbrowser
-
-try:
-    import pyautogui
-    import openpyxl
-    from PIL import Image
-except ModuleNotFoundError as err:
-    print("not installed modules please go through the read me files, press anything to exit")
-    input()
-#enabling mouse fail safe
-pyautogui.FAILSAFE = True
-
-#copying data from excel sheet to the program
-meetings = []
-wb = openpyxl.load_workbook('List.xlsx')
-sheet = wb['Sheet1']
-
-for i in sheet.iter_rows(values_only = True):
-    if i[0] != None:   
-        meetings.append(i)
-meetings.pop(0)
-meetings.sort()
-
-
-#function to manualy join if no link is provided
-def manualjoin(id, password = ""):
-    
-    time.sleep(3)
-
-    #locating the zoom app
-    while True:
-        var = pyautogui.locateOnScreen('final.png', confidence=0.9)
-        if var != None:
-            pyautogui.click(var)
-            break
-        elif (time.time() - cur) >= 120:
-            print("App Not opened")
-            break
-        #check every 30 secs
-        time.sleep(30)
-
-    time.sleep(3)
-
-    #entering the meeting id
-    pyautogui.typewrite(id)
-
-    #disabling video source
-    var = pyautogui.locateOnScreen('videooff.png', confidence=0.9)
-    pyautogui.click(var)
-
-    #clicking the join button
-    var = pyautogui.locateOnScreen('join.png', confidence=0.9)
-    join = (var[0] + 75, var[1] + 10, var[2], var[3])
-    pyautogui.moveTo(pyautogui.center(join))
-    pyautogui.click(join)
-
-    time.sleep(3)
-
-    #checking and entering if meeting password is enabled
-    if pyautogui.locateOnScreen('password.png', confidence=0.9) != None :
-        pyautogui.typewrite(password)
-        var = pyautogui.locateOnScreen('joinmeeting.png', confidence=0.9)
-        pyautogui.click(var)
-
-    return
-
-
-
-def linkjoin(link):
-    #open the given link in web browser
-    webbrowser.open(link)
-    start = time.time()
-    time.sleep(3)
-    while True:
-        var = pyautogui.locateOnScreen('openlink.png', confidence=0.9)
-        if var != None:
-            pyautogui.click(var)
-            break
-        var = pyautogui.locateOnScreen('openzoom.png', confidence=0.9)
-        if var != None:
-            pyautogui.click(var)
-            break
-        elif (time.time() - start) >= 120:
-            print("link " + link + " not opened")
-            break
-        time.sleep(3)
-    return
-
-
-#Iterating through the meeting list to jointate the specified time
-for i in range(len(meetings)):
-    curmeeting = meetings[i]
-
-    #Setting the meeting Times
-    cur = round(time.time(), 0)
-    temp = curmeeting[0].timestamp()
-
-    #join a minute early for later scheduled class
-    if(cur < temp - 60):
-        print("next class in ", end ="")
-        print(datetime.timedelta(seconds = (temp - cur) - 60))
-        time.sleep(temp - cur - 60)
-    #if more than 5 minutes have passed already
-    elif (cur - temp) > 300:
-        print("skipped meeting " + str(i + 1))
-        continue
-        
-    var = os.system("taskkill /f /im Zoom.exe")
-    
-    
-    #check if link is provided
-    if curmeeting[1] != None:
-        linkjoin(str(curmeeting[1]))
-    #check if 
-    if curmeeting[2] != None:
-        subfolders = [ f.path for f in os.scandir("C:\\Users") if f.is_dir() ]
-        #opening the zoom app, if you are running on a different OS or the path is different
-        #change the path here 
-        for i in subfolders:
-            if os.path.isfile(i + "\\AppData\\Roaming\\Zoom\\bin\\Zoom.exe"):
-                subprocess.Popen(i + "\\AppData\\Roaming\\Zoom\\bin\\Zoom.exe")  
-        manualjoin(str(curmeeting[2]), str(curmeeting[3]))
-    
-    else:
-        print("data insufficient, press anything to exit")
-        input()
-        exit()
-
-    time.sleep(5)
-    #check whether the class has started and enabling audio
-    while True:
-        if pyautogui.locateOnScreen('audioenable.png', confidence=0.9) != None :
-            var = pyautogui.locateOnScreen('audioenable.png', confidence=0.9)
-            pyautogui.click(var)
-            break
-        elif pyautogui.locateOnScreen('leave.png', confidence=0.9) != None :
-            var = pyautogui.locateOnScreen('leave.png', confidence=0.9)
-            pyautogui.click(var)
-            break
-        elif (time.time() - cur) >= 30 * 60:
-            os.system("taskkill /f /im Zoom.exe")
-            break
-        time.sleep(5)
-
-    #check whether the mic is muted, if not muted
-    pyautogui.moveTo(x = 900, y = 900, duration = 0.25)
-    if pyautogui.locateOnScreen('mute.png', confidence=0.9) != None :
-        var = pyautogui.locateOnScreen('mute.png', confidence=0.9)
-        pyautogui.click(var)
-
-
-#program has finished all classes and exits
-print("Done, press anything to exit")
-input()
-var = os.system("taskkill /f /im Zoom.exe")
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+y_true = val_generator.classes
+y_pred = model.predict_generator(val_generator).argmax(axis=1)
+class_accuracy = accuracy_score(y_true, y_pred)
+conf_matrix = confusion_matrix(y_true, y_pred)
+currency_report = classification_report(y_true, y_pred)
